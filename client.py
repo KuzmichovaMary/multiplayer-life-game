@@ -58,6 +58,7 @@ class Balls:
             ball.draw(screen)
 
 
+# этот класс не нужен пока
 class Game:
     def __init__(self):
         pygame.init()
