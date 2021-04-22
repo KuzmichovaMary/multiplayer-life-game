@@ -112,6 +112,13 @@ class Life:
                 maxy = y
         return minx or 0, miny or 0, maxx or 0, maxy or 0
 
+    def calculate_cells_by_color(self, color_id):
+        counter = 0
+        for cell in self.living_cells():
+            if self.alive.getitem(cell) == color_id:
+                counter += 1
+        return counter
+
     def advance(self):
         """Advance the simulation by one time unit."""
         processed = CellList()
