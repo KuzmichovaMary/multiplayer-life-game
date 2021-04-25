@@ -4,6 +4,7 @@ import sys
 import pickle
 from life import Life
 from time import time
+from config import COLORS
 
 
 FIRST_PLAYER = 1
@@ -49,14 +50,15 @@ class Server:
             # player_id: {(), (), }
         }
         self.life = Life()
-        self.round_time = 1
-        self.eating_time = 0.5
+        self.round_time = 0.5
+        self.eating_time = 0.1
         self.start_round_time = None
         self.start_eating_time = None
+        self.show_info_time = 5 / 12  # minutes
 
     def new_threaded_client(self, connection):
         data = self.make_color()
-        connection.send(data.encode())
+        connection.sendall(data.encode())
         while True:
             try:
                 data = connection.recv(BUFF_SIZE).decode()
@@ -72,6 +74,7 @@ class Server:
                         if seconds_to_minutes(time()) - self.start_eating_time > self.eating_time:
                             answer = b"(yes )"
                             self.start_round_time = seconds_to_minutes(time())
+                            self.round_time += self.show_info_time
                             self.life = Life()
                         else:
                             answer = b"(no )"
@@ -94,6 +97,8 @@ class Server:
                         else:
                             answer = b"(no )"
                     connection.sendall(answer)
+                elif cmd == "test_message":
+                    connection.sendall(b"-------------------------------- Hello client -----------------------------------")
                 if not data:
                     print("Disconnected.")
                     break
@@ -124,62 +129,8 @@ class Server:
             start_new_thread(self.new_threaded_client, (connection,))
 
     def make_color(self):
-        return f"(color int:{self.n_players})"
+        return f"(color int:{self.n_players % len(COLORS)})"
 
-
-# s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-#
-# try:
-#     s.bind((HOST, PORT))
-# except socket.error as e:
-#     print(e)
-#
-# s.listen(2)
-# print("Waiting for connection. Server started...")
-
-
-def read_position(str):
-    str = str.split(",")
-    return int(str[0]), int(str[1])
-
-
-pos = [(0, 0), (100, 100)]
-
-
-# def threadedClient(conn, player):
-#     conn.send(str.encode(make_color(pos[player])))
-#     reply = ""
-#     while True:
-#         try:
-#             data = read_position(conn.recv(2048).decode())
-#             pos[player] = data
-#
-#             if not data:
-#                 print("Disconnected...")
-#                 break
-#             else:
-#                 if player == 1:
-#                     reply = pos[0]
-#                 else:
-#                     reply = pos[1]
-#                 print("Received :", data)
-#                 print("Sending  :", reply)
-#
-#             conn.sendall(str.encode(make_color(reply)))
-#         except:
-#             break
-#
-#     print("Lost connection")
-#     conn.close()
-#
-#
-# currentPlayer = 0
-# while True:
-#     conn, addr = s.accept()
-#     print("Connected to:", addr)
-#
-#     start_new_thread(threadedClient, (conn, currentPlayer))
-#     currentPlayer += 1
 
 server = Server()
 server.start_server()

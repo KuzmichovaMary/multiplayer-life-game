@@ -6,10 +6,12 @@ import pygame
 from life import Life
 from config import *
 import pickle
+import os
 
 
 SECONDS_IN_MINUTE = 60
 MINUTE = 1
+os.environ["SDL_VIDEO_CENTERED"] = "1"
 
 
 def ms_to_minutes(time_in_milliseconds):
@@ -23,7 +25,8 @@ def ms_to_seconds(time_in_milliseconds):
 def read_data(data):
     """read data in format
         (command data_type:value data_type:value ...)
-        >>>read_data("(toggle int:1 int:2 str:alpha")"""
+        >>>read_data("(toggle int:1 int:2 str:alpha")
+        >>>("toggle", 1, 2, "alpha")"""
     print(data, "HERE")
     if not data:
         return None, [None]
@@ -65,8 +68,12 @@ class Game:
         self.rounds = 5
         self.round_generations = 50
         self.curr_round_generations = 0
-        self.show_round_info_time = 30  # seconds
+        self.show_info_time = 5 / 12  # seconds
         self.c = 0
+        self.start_show_info_time = None
+        self.showing_info = False
+        self.info = None
+        self.w, self.h = None, None
 
     def center(self):
         cell_count_h = HEIGHT // self.scale
@@ -78,7 +85,10 @@ class Game:
 
     def start_game(self):
         pygame.init()
-        self.screen = pygame.display.set_mode((WIDTH, HEIGHT), SRCALPHA)
+        self.info = pygame.display.Info()
+        self.w, self.h = self.info.current_w, self.info.current_h
+        flags = SRCALPHA  # | FULLSCREEN
+        self.screen = pygame.display.set_mode((WIDTH, HEIGHT), flags)
         pygame.display.set_caption(f'Game of Life (placing time)')
         self.center()
         self.clock = pygame.time.Clock()
@@ -116,8 +126,11 @@ class Game:
         # event_type = event[0]
         # self.on(event_type)
         if self.placing_cells_mode:
+            if self.showing_info and ms_to_minutes(pygame.time.get_ticks()) - self.start_show_info_time > self.show_info_time:
+                self.showing_info = False
             received = self.network.send("(get_alive )", res=True)
             alive = pickle.loads(received)
+            print("ALIVE", alive)
             self.life.alive = alive
             cmd, args = read_data(self.network.send(f"(start_eating? int:{self.color - 1})", res=True).decode())
             if cmd == "yes":
@@ -136,11 +149,9 @@ class Game:
             self.c += 1
             if cmd == "yes":
                 self.placing_cells_mode = True
-                start_time = ms_to_seconds(pygame.time.get_ticks())
+                self.start_show_info_time = ms_to_minutes(pygame.time.get_ticks())
                 self.screen.fill(NEW_ROUND_BACKGROUND)
-                while ms_to_seconds(pygame.time.get_ticks()) - start_time < self.show_round_info_time:
-                    self.draw_new_round()
-                    pygame.display.flip()
+                self.showing_info = True
                 self.start_new_round()
                 pygame.display.set_caption("Life (placing time)")
 
@@ -150,7 +161,7 @@ class Game:
             if pygame_event_type == QUIT:
                 pygame.quit()
                 sys.exit()
-            elif self.placing_cells_mode and pygame_event_type == MOUSEBUTTONDOWN:
+            elif self.placing_cells_mode and not self.showing_info and pygame_event_type == MOUSEBUTTONDOWN:
                 mouse_x, mouse_y = pygame.mouse.get_pos()
                 x = mouse_x // self.scale + self.base_x
                 y = mouse_y // self.scale + self.base_y
@@ -160,19 +171,25 @@ class Game:
                 self.on_key_down(event)
 
     def draw(self):
+        if self.showing_info:
+            self.draw_new_round()
+        else:
+            self.draw_cells()
+        pygame.display.flip()
+
+    def draw_cells(self):
         self.screen.fill(WHITE)
         for x in range(0, WIDTH, self.scale):  # draw vertical lines
             pygame.draw.line(self.screen, BLACK, (x, 0), (x, HEIGHT))
         for y in range(0, HEIGHT, self.scale):  # draw horizontal lines
             pygame.draw.line(self.screen, BLACK, (0, y), (WIDTH, y))
+        print(self.life.alive.cells, self.life.alive.items)
         for x, y in self.life.alive:  # draw live cells
             pygame.draw.rect(self.screen, COLORS[self.life.alive.getitem((y, x))],
                              ((x - self.base_x) * self.scale + GRID_LINE_WIDTH + CELL_MARGIN,
                               (y - self.base_y) * self.scale + GRID_LINE_WIDTH + CELL_MARGIN,
                               self.scale - GRID_LINE_WIDTH - 2 * CELL_MARGIN,
                               self.scale - GRID_LINE_WIDTH - 2 * CELL_MARGIN))
-
-        pygame.display.flip()
 
     def display_text(self, text, y, font_size=50, pos="middle", x=10, width=WIDTH):
         font = pygame.font.Font(None, font_size)
@@ -183,14 +200,14 @@ class Game:
         else:
             self.screen.blit(text, (x, y))
 
-    def display_lines(self, y, lines, font_size=40):
+    def display_lines(self, y, lines, font_size=20):
         for ind, line in enumerate(lines):
             self.display_text(line, y + ind * font_size, font_size)
 
     def draw_new_round(self):
         score = 9
         lines = [
-            "Rounded ended."
+            "Round ended.",
             f"Your score {score}."
         ]
         self.display_lines(10, lines)

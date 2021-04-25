@@ -1,4 +1,5 @@
 from random import randint
+from config import COLORS
 
 
 class CellList:
@@ -17,29 +18,30 @@ class CellList:
         """Check if a cell exists in this list."""
         return x in self.cells.get(y, [])
 
-    def set(self, x, y, add_=None, item=None):
-        """Add, remove or toggle a cell in this list."""
-        if add_ is None:
-            add_ = not self.has(x, y)
-        if add_:
-            row = self.cells.setdefault(y, set())
-            if x not in row:
-                row.add(x)
-            self.items[(y, x)] = item
+    def set(self, x, y, item=None):
+        row = self.cells.setdefault(y, set())
+        if x not in row:
+            row.add(x)
+        self.items[(y, x)] = item
+
+    def delete(self, x, y):
+        try:
+            self.cells[y].remove(x)
+            del self.items[(x, y)]
+        except KeyError:
+            pass
         else:
-            try:
-                self.cells[y].remove(x)
-            except KeyError:
-                pass
-            else:
-                if not self.cells[y]:
-                    del self.cells[y]
+            if not self.cells[y]:
+                del self.cells[y]
 
     def __iter__(self):
         """Iterator over the cells in this list."""
         for y in self.cells:
             for x in self.cells[y]:
                 yield (x, y)
+
+    def __str__(self):
+        return str(self.cells)
 
 
 class Life:
@@ -90,7 +92,11 @@ class Life:
 
     def toggle(self, x, y, color):
         """Toggle a cell in the grid."""
-        self.alive.set(x, y, item=color)
+        if self.alive.has(x, y):
+            if self.alive.getitem((x, y)) == color:
+                self.alive.delete(x, y)
+        else:
+            self.alive.set(x, y, color)
 
     def living_cells(self):
         """Iterate over the living cells."""
@@ -124,8 +130,8 @@ class Life:
         processed = CellList()
         new_alive = CellList()
         for x, y in self.living_cells():
-            for i in range(-1, 2):
-                for j in range(-1, 2):
+            for i in (-1, 0, 1):
+                for j in (-1, 0, 1):
                     if (x + i, y + j) in processed:
                         continue
                     processed.set(x + i, y + j, True)
@@ -133,11 +139,13 @@ class Life:
                     if color is None:
                         color = randint(1, 3)
                     if self._advance_cell(x + i, y + j):
-                        new_alive.set(x + i, y + j, True, color)
+                        new_alive.set(x + i, y + j, color)
         self.alive = new_alive
 
     def _advance_cell(self, x, y):
         """Calculate the new state of a cell."""
+        all_neighbors = 0
+        my_color_neighbours = 0
         neighbors = 0
         for i in (-1, 0, 1):
             for j in (-1, 0, 1):
