@@ -1,14 +1,12 @@
 import socket
-
-
-BUFF_SIZE = 4096
+from config import *
 
 
 class Client:
     def __init__(self):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server = socket.gethostbyname(socket.gethostname())
-        self.port = 5555
+        self.port = PORT
         self.addr = (self.server, self.port)
         self.color = self.connect()
 
@@ -29,6 +27,3 @@ class Client:
                 return self.socket.recv(BUFF_SIZE)
         except socket.error as e:
             print(e)
-
-
-

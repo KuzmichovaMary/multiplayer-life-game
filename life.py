@@ -93,7 +93,9 @@ class Life:
     def toggle(self, x, y, color):
         """Toggle a cell in the grid."""
         if self.alive.has(x, y):
-            if self.alive.getitem((x, y)) == color:
+            print("HERE", self.alive.items, x, y)
+            if self.alive.getitem((y, x)) == color:
+                print("deleting point", x, y)
                 self.alive.delete(x, y)
         else:
             self.alive.set(x, y, color)
@@ -104,24 +106,22 @@ class Life:
 
     def bounding_box(self):
         """Return the bounding box that includes all living cells."""
-        minx = miny = maxx = maxy = None
-        for cell in self.living_cells():
-            x = cell[0]
-            y = cell[1]
-            if minx is None or x < minx:
-                minx = x
-            if miny is None or y < miny:
-                miny = y
-            if maxx is None or x > maxx:
-                maxx = x
-            if maxy is None or y > maxy:
-                maxy = y
-        return minx or 0, miny or 0, maxx or 0, maxy or 0
+        min_x = min_y = max_x = max_y = None
+        for x, y in self.living_cells():
+            if min_x is None or x < min_x:
+                min_x = x
+            if min_y is None or y < min_y:
+                min_y = y
+            if max_x is None or x > max_x:
+                max_x = x
+            if max_y is None or y > max_y:
+                max_y = y
+        return min_x or 0, min_y or 0, max_x or 0, max_y or 0
 
     def calculate_cells_by_color(self, color_id):
         counter = 0
-        for cell in self.living_cells():
-            if self.alive.getitem(cell) == color_id:
+        for x, y in self.living_cells():
+            if self.alive.getitem((y, x)) == color_id:
                 counter += 1
         return counter
 
@@ -135,24 +135,47 @@ class Life:
                     if (x + i, y + j) in processed:
                         continue
                     processed.set(x + i, y + j, True)
-                    color = self.alive.getitem((y + j, x + i))
-                    if color is None:
-                        color = randint(1, 3)
-                    if self._advance_cell(x + i, y + j):
+                    color = self._advance_cell(x + i, y + j)
+                    if color:
                         new_alive.set(x + i, y + j, color)
         self.alive = new_alive
 
+    @staticmethod
+    def sum_others(dict_, color_id):
+        s = 0
+        for color in dict_:
+            if color != color_id:
+                s += dict_[color]
+        return s
+
+    @staticmethod
+    def get_color_of_born_cell(dict_):
+        for key in dict_:
+            if dict_[key] in (3, ):
+                for key_ in dict_:
+                    if dict_[key_] > dict_[key]:
+                        break
+                else:
+                    return key
+        return False
+
     def _advance_cell(self, x, y):
         """Calculate the new state of a cell."""
-        all_neighbors = 0
-        my_color_neighbours = 0
-        neighbors = 0
+        all_neighbors = {}
         for i in (-1, 0, 1):
             for j in (-1, 0, 1):
-                if i != 0 or j != 0:
-                    neighbors += 1 if self.alive.has(x + i, y + j) else 0
+                if (i != 0 or j != 0) and self.alive.has(x + i, y + j):
+                    color = self.alive.getitem((y + j, x + i))
+                    if color in all_neighbors:
+                        all_neighbors[color] += 1
+                    else:
+                        all_neighbors[color] = 1
 
         if self.alive.has(x, y):
-            return neighbors in self.survival
+            color = self.alive.getitem((y, x))
+            others_sum = self.sum_others(all_neighbors, color)
+            if others_sum < 2 and color in all_neighbors and all_neighbors[color] in (2, 3):
+                return color
+            return False
         else:
-            return neighbors in self.birth
+            return self.get_color_of_born_cell(all_neighbors)

@@ -4,7 +4,7 @@ import sys
 import pickle
 from life import Life
 from time import time
-from config import COLORS
+from config import *
 
 
 FIRST_PLAYER = 1
@@ -26,18 +26,124 @@ def read_data(data):
     return command, args
 
 
-def seconds_to_minutes(time_in_seconds):
-    return time_in_seconds / 60
-
-
-def ms_to_seconds(time_in_milliseconds):
-    return time_in_milliseconds / 1000
-
-
 MY_IPV4 = "192.168.1.150"
 HOST = socket.gethostbyname(socket.gethostname())
-PORT = 5555
-BUFF_SIZE = 4096
+SEND = True
+NOT_SEND = False
+
+
+life = Life()
+scores = {}
+
+
+class TimeManager:
+    def __init__(self):
+        self.placing_cells_time = ROUND_TIME
+        self.eating_time = EATING_TIME
+        self.show_info_time = SHOW_INFO_TIME
+
+        self.start_placing_cells_time = None
+        self.start_eating_time = None
+        self.start_show_info_time = None
+
+        self.n_players = 0
+        self.rounds_passed = 0
+
+        self.placing_cells_mode = False
+        self.showing_info_mode = False
+        self.eating_mode = False
+
+    def start(self):
+        self.start_placing_cells_time = time()
+        self.placing_cells_mode = True
+
+    def start_new_round(self):
+        global life
+        if self.showing_info_mode and time() - self.start_show_info_time > self.show_info_time:
+            life = Life()
+            self.showing_info_mode = False
+            self.eating_mode = False
+            self.placing_cells_mode = True
+            self.start_placing_cells_time = time()
+
+    def start_showing_info(self):
+        if self.eating_mode and time() - self.start_eating_time > self.eating_time:
+            self.showing_info_mode = True
+            self.eating_mode = False
+            self.placing_cells_mode = False
+            self.start_show_info_time = time()
+            self.update_scores()
+
+    @staticmethod
+    def update_scores():
+        global scores
+        for color_id in scores:
+            scores[color_id] += life.calculate_cells_by_color(color_id)
+
+    def start_eating(self):
+        if self.placing_cells_mode and time() - self.start_placing_cells_time > self.placing_cells_time:
+            self.showing_info_mode = False
+            self.eating_mode = True
+            self.placing_cells_mode = False
+            self.start_eating_time = time()
+
+    def what_now(self):
+        self.start_showing_info()
+        self.start_eating()
+        self.start_new_round()
+        if self.placing_cells_mode:
+            return "place_cells"
+        elif self.eating_mode:
+            return "eat"
+        elif self.showing_info_mode:
+            return "show_info"
+
+
+class EventManager:
+    def __init__(self):
+        self.n_players = 0
+        self.key_client = 1
+        self.players = []
+        self.time_manager = TimeManager()
+
+    def on_new_connection(self):
+        self.n_players += 1
+        if self.n_players == self.key_client:
+            self.time_manager.start()
+        self.players.append(self.n_players)
+        scores[self.n_players] = 0
+
+    def on(self, data):
+        cmd, args = read_data(data)
+        if cmd == "get_alive":
+            return True, pickle.dumps(life.alive)
+        elif cmd == "get_scores":
+            return True, pickle.dumps(scores)
+        elif cmd == "bounding_box":
+            return True, pickle.dumps(life.bounding_box())
+        elif cmd == "advance":
+            life.advance()
+            return True, pickle.dumps(life.alive)
+        elif cmd == "toggle":
+            x, y, color = args
+            life.toggle(x, y, color)
+            return False, None
+        elif cmd == "what_now?":
+            return True, self.time_manager.what_now().encode()
+        elif cmd == "test_message":
+            return True, b"-------------------------------- Hello client -----------------------------------"
+
+    def make_color(self):
+        return f"(color int:{self.n_players % len(COLORS)})"
+
+    def on_connection_lost(self, color_id):
+        global scores
+        print(self.players, color_id)
+        del scores[color_id]
+        self.players.remove(color_id)
+        if not self.players:
+            sys.exit()
+        self.key_client = self.players[0]
 
 
 class Server:
@@ -45,68 +151,28 @@ class Server:
         self.host = host
         self.port = port
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.n_players = 0
-        self.cells = {
-            # player_id: {(), (), }
-        }
-        self.life = Life()
-        self.round_time = 0.5
-        self.eating_time = 0.1
-        self.start_round_time = None
-        self.start_eating_time = None
-        self.show_info_time = 5 / 12  # minutes
+        self.event_manager = EventManager()
 
     def new_threaded_client(self, connection):
-        data = self.make_color()
+        data = self.event_manager.make_color()
+        color = read_data(data)[1][0]
+        print(color, "COLOR")
         connection.sendall(data.encode())
         while True:
             try:
                 data = connection.recv(BUFF_SIZE).decode()
-                print(f"Received: {data}")
-                cmd, args = read_data(data)
-                if cmd == "get_alive":
-                    connection.sendall(pickle.dumps(self.life.alive))
-                elif cmd == "toggle":
-                    x, y, color = args
-                    self.life.toggle(x, y, color)
-                elif cmd == "start_new_round?":
-                    if args[0] == FIRST_PLAYER:
-                        if seconds_to_minutes(time()) - self.start_eating_time > self.eating_time:
-                            answer = b"(yes )"
-                            self.start_round_time = seconds_to_minutes(time())
-                            self.round_time += self.show_info_time
-                            self.life = Life()
-                        else:
-                            answer = b"(no )"
-                    else:
-                        if seconds_to_minutes(time()) - self.start_eating_time > self.eating_time:
-                            answer = b"(yes )"
-                        else:
-                            answer = b"(no )"
-                    connection.sendall(answer)
-                elif cmd == "start_eating?":
-                    if args[0] == FIRST_PLAYER:
-                        if seconds_to_minutes(time()) - self.start_round_time > self.round_time:
-                            answer = b"(yes )"
-                            self.start_eating_time = seconds_to_minutes(time())
-                        else:
-                            answer = b"(no )"
-                    else:
-                        if seconds_to_minutes(time()) - self.start_round_time > self.round_time:
-                            answer = b"(yes )"
-                        else:
-                            answer = b"(no )"
-                    connection.sendall(answer)
-                elif cmd == "test_message":
-                    connection.sendall(b"-------------------------------- Hello client -----------------------------------")
+                # print(f"Received: {data}")
                 if not data:
-                    print("Disconnected.")
+                    # print("Disconnected.")
                     break
-
-            except:
-                break
+                do, message = self.event_manager.on(data)
+                if do == SEND:
+                    connection.sendall(message)
+            except EOFError:
+                print("Ran out of input.")
 
         print("Lost connection.")
+        self.event_manager.on_connection_lost(color)
         connection.close()
 
     def start_server(self):
@@ -116,20 +182,14 @@ class Server:
             print(error)
 
         self.socket.listen(4)
-        print(f"Server started at {self.host} {self.port}")
+        # print(f"Server started at {self.host} {self.port}")
 
         while True:
             connection, address = self.socket.accept()
             print(f"Connection with {address} established.")
 
-            if self.n_players == 0:
-                self.start_round_time = seconds_to_minutes(time())
-
-            self.n_players += 1
+            self.event_manager.on_new_connection()
             start_new_thread(self.new_threaded_client, (connection,))
-
-    def make_color(self):
-        return f"(color int:{self.n_players % len(COLORS)})"
 
 
 server = Server()
