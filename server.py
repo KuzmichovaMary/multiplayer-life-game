@@ -36,6 +36,13 @@ life = Life()
 scores = {}
 
 
+COLORS = {
+    1: GREISH_BLUE,
+    2: SEA_BLUE,
+    3: RED
+}
+
+
 class TimeManager:
     def __init__(self):
         self.placing_cells_time = ROUND_TIME
@@ -114,9 +121,16 @@ class EventManager:
         scores[self.n_players] = 0
 
     def on(self, data):
+        global COLORS
         cmd, args = read_data(data)
         if cmd == "get_alive":
             return True, pickle.dumps(life.alive)
+        elif cmd == "set_color":
+            color_id, r, g, b = args
+            COLORS[color_id] = (r, g, b)
+            return False, None
+        elif cmd == "get_colors":
+            return True, pickle.dumps(COLORS)
         elif cmd == "get_scores":
             return True, pickle.dumps(scores)
         elif cmd == "bounding_box":

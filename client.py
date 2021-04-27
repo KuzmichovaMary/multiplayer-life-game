@@ -7,6 +7,7 @@ from life import Life
 from config import *
 import pickle
 import os
+from GUI import ColorPicker, Button
 
 
 pygame.init()
@@ -59,20 +60,20 @@ class Note:
                          (x, y, color_block_w - 6, color_block_w - 6), border_radius=5)
         self.display_surface.blit(text, (x + color_block_w + COLOR_TEXT_SPACE, y))
 
-    def display_lines(self, y, lines, font_size=32, height=HEIGHT):
+    def display_lines(self, y, lines, font_size=32, height=HEIGHT, colors=None):
         for ind, pair in enumerate(lines):
             # print(pair)
             line, color = pair
             if not color:
                 self.display_color_text_middle(line, y + ind * font_size + 2, NEW_ROUND_BACKGROUND, font_size)
             else:
-                self.display_color_text_middle(line, y + ind * font_size + 2, COLORS[color], font_size)
+                self.display_color_text_middle(line, y + ind * font_size + 2, colors[color], font_size)
 
-    def display(self, screen, lines):
+    def display(self, screen, lines, colors):
         self.display_surface.fill((90, 90, 90, 0))
         pygame.draw.rect(self.display_surface, self.color,
                          (0, 0, self.w, self.h), border_radius=NEW_ROUND_MESSAGE_BORDER_RADIUS)
-        self.display_lines(NEW_ROUND_TEXT_TOP, lines)
+        self.display_lines(NEW_ROUND_TEXT_TOP, lines, colors=colors)
         screen.blit(self.display_surface, self.display_rect)
 
 
@@ -86,6 +87,9 @@ class Game:
         self.clock = None
         self.network = network
         self.color_id = color
+        self.colors = COLORS
+
+        self.color = COLORS[self.color_id]
         self.c = 0
 
         self.placing_cells_mode = True
@@ -106,6 +110,25 @@ class Game:
 
         self.watching_settings = False
 
+        self.color_picker = ColorPicker(20, 20, WIDTH - 40, HEIGHT - 40, job_on_set=self.set_color)
+        close_btn_icon = "x.png"
+        self.close_color_picker_btn = Button(WIDTH - 70, 30, job_on_click=self.close_color_picker, icon_path_1=close_btn_icon, icon_path_2=close_btn_icon)
+        self.settings_button = Button(20, 20, job_on_click=self.open_settings, icon_path_1="settings44px.png", icon_path_2="settings44px.png")
+
+    def set_color(self):
+        r = int(self.color_picker.r)
+        g = int(self.color_picker.g)
+        b = int(self.color_picker.b)
+        self.network.send(f"(set_color int:{self.color_id} int:{r} int:{g} int:{b})")
+        self.watching_settings = False
+
+    def close_color_picker(self):
+        self.watching_settings = False
+
+    def open_settings(self):
+        self.watching_settings = True
+
+
     def center(self):
         cell_count_h = HEIGHT // self.scale
         cell_count_w = WIDTH // self.scale
@@ -124,33 +147,38 @@ class Game:
         self.main()
 
     def on_key_down(self, event):
-        key = event.key
-        if key == K_ESCAPE:
-            self.running = False
-        elif key == K_LEFT:
-            self.base_x -= SCROLL_DELTA
-        elif key == K_RIGHT:
-            self.base_x += SCROLL_DELTA
-        elif key == K_UP:
-            self.base_y -= SCROLL_DELTA
-        elif key == K_DOWN:
-            self.base_y += SCROLL_DELTA
-        elif event.key == K_EQUALS:
-            if self.scale < MAX_SCALE:
-                self.scale += SCALE_DELTA
-        elif event.key == K_MINUS:
-            if self.scale > MIN_SCALE:
-                self.scale -= SCALE_DELTA
-        elif event.unicode == 'c':
-            self.center()
+        if not self.watching_settings:
+            key = event.key
+            if key == K_ESCAPE:
+                self.running = False
+            elif key == K_LEFT:
+                self.base_x -= SCROLL_DELTA
+            elif key == K_RIGHT:
+                self.base_x += SCROLL_DELTA
+            elif key == K_UP:
+                self.base_y -= SCROLL_DELTA
+            elif key == K_DOWN:
+                self.base_y += SCROLL_DELTA
+            elif event.key == K_EQUALS:
+                if self.scale < MAX_SCALE:
+                    self.scale += SCALE_DELTA
+            elif event.key == K_MINUS:
+                if self.scale > MIN_SCALE:
+                    self.scale -= SCALE_DELTA
+            elif event.unicode == 'c':
+                self.center()
 
     def on_mouse_buttondown(self):
-        if self.placing_cells_mode:
+        self.settings_button.update()
+        if self.placing_cells_mode and not self.watching_settings:
             mouse_x, mouse_y = pygame.mouse.get_pos()
             x = mouse_x // self.scale + self.base_x
             y = mouse_y // self.scale + self.base_y
             data = f"(toggle int:{x} int:{y} int:{self.color_id})"
             self.network.send(data)
+
+        if self.watching_settings:
+            self.close_color_picker_btn.update()
 
     def set_caption(self, cmd):
         if self.caption != self.captions[cmd]:
@@ -174,39 +202,49 @@ class Game:
             self.eating_mode = False
 
     def update(self):
-        cmd = self.network.send(f"(what_now? int:{self.color_id})", res=True).decode()
-        self.set_caption(cmd)
-        self.change_mode(cmd)
+        if not self.watching_settings:
+            self.colors = pickle.loads(self.network.send("(get_colors )", res=True))
+            cmd = self.network.send(f"(what_now? int:{self.color_id})", res=True).decode()
+            self.set_caption(cmd)
+            self.change_mode(cmd)
 
-        if self.placing_cells_mode:
-            received = self.network.send("(get_alive )", res=True)
-            self.alive = pickle.loads(received)
-        elif self.eating_mode:
-            received = self.network.send("(advance )", res=True)
-            self.alive = pickle.loads(received)
-        elif self.showing_info_mode:
-            received = self.network.send(f"(get_scores )", res=True)
-            # print(received)
-            self.scores = pickle.loads(received)
-            pygame.display.set_caption("Life (placing time)")
+            if self.placing_cells_mode:
+                received = self.network.send("(get_alive )", res=True)
+                self.alive = pickle.loads(received)
+            elif self.eating_mode:
+                received = self.network.send("(advance )", res=True)
+                self.alive = pickle.loads(received)
+            elif self.showing_info_mode:
+                received = self.network.send(f"(get_scores )", res=True)
+                # print(received)
+                self.scores = pickle.loads(received)
 
         pygame_events = pygame.event.get(EVENT_TYPES)
         for event in pygame_events:
+            if self.watching_settings:
+                print("heeeeere")
+                self.color_picker.update(event.type)
             pygame_event_type = event.type
             if pygame_event_type == QUIT:
                 pygame.quit()
                 sys.exit()
             elif pygame_event_type == MOUSEBUTTONDOWN:
+                print("here")
                 self.on_mouse_buttondown()
             elif pygame_event_type == KEYDOWN:
                 self.on_key_down(event)
+
 
     def draw(self):
         if self.showing_info_mode:
             self.draw_cells()
             self.draw_new_round()
+        elif self.watching_settings:
+            self.color_picker.display(self.screen)
+            self.close_color_picker_btn.display(self.screen)
         else:
             self.draw_cells()
+        self.settings_button.display(self.screen)
         pygame.display.flip()
 
     def draw_cells(self):
@@ -216,7 +254,7 @@ class Game:
         for y in range(0, HEIGHT, self.scale):  # draw horizontal lines
             pygame.draw.line(self.screen, BLACK, (0, y), (WIDTH, y))
         for x, y in self.alive:  # draw live cells
-            pygame.draw.rect(self.screen, COLORS[self.alive.getitem((y, x))],
+            pygame.draw.rect(self.screen, self.colors[self.alive.getitem((y, x))],
                              ((x - self.base_x) * self.scale + GRID_LINE_WIDTH + CELL_MARGIN,
                               (y - self.base_y) * self.scale + GRID_LINE_WIDTH + CELL_MARGIN,
                               self.scale - GRID_LINE_WIDTH - 2 * CELL_MARGIN,
@@ -230,7 +268,7 @@ class Game:
         ]
         for color_id, score in scoreboard:
             lines.append((f" - {score}", color_id))
-        self.new_round_info.display(self.screen, lines)
+        self.new_round_info.display(self.screen, lines, self.colors)
 
     def main(self):
         while True:
