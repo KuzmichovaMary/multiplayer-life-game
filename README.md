@@ -14,5 +14,5 @@ Windows 10, python 3.7, pygame 2.0
 ## Some screenshots
 
 
-![main_menu](https://github.com/KuzmichovaMary/RunnerGame/blob/master/screenshot.png?raw=true)
+![main_menu](https://github.com/KuzmichovaMary/multiplayer-life-game/blob/master/screenshot.png?raw=true)
 
